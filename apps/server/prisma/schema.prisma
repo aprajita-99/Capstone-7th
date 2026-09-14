@@ -63,6 +63,9 @@ model Section {
   enrollments Enrollment[]
   sessions    AttendanceSession[]
   invites     Invite[]
+  
+  activeSessionId String? @unique
+  activeSession   AttendanceSession? @relation("ActiveSession", fields: [activeSessionId], references: [id])
 }
 
 model Enrollment {
@@ -100,12 +103,14 @@ model AttendanceSession {
   teacher     Teacher  @relation(fields: [teacherId], references: [id])
   subject     String
   room        String
+  durationMinutes Int  @default(60) // Bound defaults to 60 for existing elements mapping
   status      AttendanceSessionStatus @default(CREATED)
-  startedAt   DateTime @default(now())
-  expiresAt   DateTime
+  startedAt   DateTime?
+  expiresAt   DateTime?
   endedAt     DateTime?
   
   records     AttendanceRecord[]
+  activeForSection Section? @relation("ActiveSession")
 }
 
 enum AttendanceSessionStatus {

@@ -13,7 +13,7 @@ router.post('/', validate(createSectionSchema), asyncHandler(createSection));
 router.get('/', asyncHandler(getSections));
 
 // Relative to /api/sections/:sectionId
-router.get('/detail/:sectionId', asyncHandler(getSection)); 
-router.get('/:sectionId/enrollments', asyncHandler(getSectionEnrollments));
+router.get('/', asyncHandler(getSection)); 
+router.get('/enrollments', asyncHandler(getSectionEnrollments));
 
 export default router;

@@ -1,80 +1,149 @@
-import { SessionRepository } from '../repositories/session.repository';
+import prisma from '../lib/prisma';
 import { SectionService } from './section.service';
-import { CourseService } from './course.service';
 import { AppError } from '../utils/errors';
 import { AttendanceSessionStatus } from '@prisma/client';
 
 export class SessionService {
-  private sessionRepo = new SessionRepository();
   private sectionService = new SectionService();
-  private courseService = new CourseService();
-
-  private isExpired(expiresAt: Date): boolean {
-    return new Date() >= expiresAt;
-  }
 
   async createSession(userId: string, sectionId: string, subject: string, room: string, durationMinutes: number) {
-    await this.sectionService.getSection(userId, sectionId);
-    const teacher = await this.courseService.getTeacherFromUser(userId);
-
-    const existingActive = await this.sessionRepo.findActiveBySection(sectionId);
-    if (existingActive) {
-      if (this.isExpired(existingActive.expiresAt)) {
-        await this.sessionRepo.updateStatus(existingActive.id, AttendanceSessionStatus.EXPIRED);
-      } else {
-        throw new AppError(400, 'Section already has an active attendance session', 'ACTIVE_SESSION_EXISTS');
+    const section = await this.sectionService.getSection(userId, sectionId);
+    
+    // Concurrency boundary starts here: We simply CREATE the session.
+    // We strictly DO NOT make it active yet. The actual "single active"
+    // condition is enforced by the Section.activeSessionId @unique constraint on START.
+    
+    return prisma.attendanceSession.create({
+      data: {
+        sectionId,
+        teacherId: userId,
+        subject,
+        room,
+        durationMinutes,
+        status: AttendanceSessionStatus.CREATED
       }
-    }
-
-    // Authoritative Server Time
-    const expiresAt = new Date(Date.now() + durationMinutes * 60000);
-    return this.sessionRepo.create(sectionId, teacher.id, subject, room, expiresAt);
+    });
   }
 
   async startSession(userId: string, sessionId: string) {
-    const session = await this.sessionRepo.findById(sessionId);
-    if (!session) throw new AppError(404, 'Session not found', 'SESSION_NOT_FOUND');
-    
-    await this.sectionService.getSection(userId, session.sectionId);
+    // 1. Fetch Session
+    const session = await prisma.attendanceSession.findUnique({
+      where: { id: sessionId },
+      include: { section: true }
+    });
 
+    if (!session) throw new AppError(404, 'Session not found', 'NOT_FOUND');
+    if (session.teacherId !== userId) throw new AppError(403, 'Cannot modify another teacher\'s session', 'FORBIDDEN');
+    
     if (session.status !== AttendanceSessionStatus.CREATED) {
-      throw new AppError(400, `Cannot start session from status: ${session.status}`, 'INVALID_STATE_TRANSITION');
+      throw new AppError(400, 'Only CREATED sessions can be started', 'INVALID_STATE');
     }
 
-    return this.sessionRepo.updateStatus(sessionId, AttendanceSessionStatus.ACTIVE);
+    // 2. Perform Atomic Transaction verifying concurrency
+    try {
+      return await prisma.$transaction(async (tx: any) => {
+        // Enforce the @unique constraint mapping - Section must not have an active session right now.
+        const sectionCheck = await tx.section.findUnique({ where: { id: session.sectionId } });
+        if (sectionCheck?.activeSessionId) {
+          throw new AppError(400, 'Another session is currently active for this section', 'CONCURRENCY_ERROR');
+        }
+
+        const now = new Date();
+        const expires = new Date(now.getTime() + session.durationMinutes * 60000);
+
+        // Transition the Session
+        const updatedSession = await tx.attendanceSession.update({
+          where: { id: sessionId },
+          data: {
+            status: AttendanceSessionStatus.ACTIVE,
+            startedAt: now,
+            expiresAt: expires
+          }
+        });
+
+        // Set the active map on the Section
+        await tx.section.update({
+          where: { id: session.sectionId },
+          data: { activeSessionId: sessionId }
+        });
+
+        return updatedSession;
+      });
+    } catch (e: any) {
+      if (e instanceof AppError) throw e;
+      // P2002 Unique Constraint violation on activeSessionId means a race condition happened and a concurrent req won
+      if (e.code === 'P2002') {
+         throw new AppError(400, 'Another session is currently active for this section', 'CONCURRENCY_ERROR');
+      }
+      throw e;
+    }
   }
 
   async stopSession(userId: string, sessionId: string) {
-    const session = await this.sessionRepo.findById(sessionId);
-    if (!session) throw new AppError(404, 'Session not found', 'SESSION_NOT_FOUND');
-    
-    await this.sectionService.getSection(userId, session.sectionId);
+    const session = await prisma.attendanceSession.findUnique({ where: { id: sessionId } });
+    if (!session) throw new AppError(404, 'Session not found', 'NOT_FOUND');
+    if (session.teacherId !== userId) throw new AppError(403, 'Forbidden', 'FORBIDDEN');
 
     if (session.status !== AttendanceSessionStatus.ACTIVE) {
-      throw new AppError(400, 'Only ACTIVE sessions can be stopped', 'INVALID_STATE_TRANSITION');
+      throw new AppError(400, 'Only ACTIVE sessions can be stopped', 'INVALID_STATE');
     }
 
-    return this.sessionRepo.updateStatus(sessionId, AttendanceSessionStatus.STOPPED);
+    return prisma.$transaction(async (tx: any) => {
+      const updatedSession = await tx.attendanceSession.update({
+        where: { id: sessionId },
+        data: {
+          status: AttendanceSessionStatus.STOPPED,
+          endedAt: new Date()
+        }
+      });
+
+      // Clear the active session lock logically allowing future ones
+      await tx.section.update({
+        where: { id: session.sectionId },
+        data: { activeSessionId: null }
+      });
+
+      return updatedSession;
+    });
   }
 
   async getActiveSession(userId: string, sectionId: string) {
+    // Validates Ownership
     await this.sectionService.getSection(userId, sectionId);
-    
-    const session = await this.sessionRepo.findActiveBySection(sectionId);
-    if (!session) {
-      throw new AppError(404, 'No active session found for this section', 'NO_ACTIVE_SESSION');
+
+    const section = await prisma.section.findUnique({
+      where: { id: sectionId },
+      include: { activeSession: true }
+    });
+
+    if (!section || !section.activeSessionId || !section.activeSession) return null;
+
+    const activeSession = section.activeSession;
+
+    // Execute Expire Verify: Transition to EXPIRED gracefully if we crossed the threshold
+    if (activeSession.expiresAt && activeSession.expiresAt <= new Date()) {
+       // It expired logically!
+       await prisma.$transaction([
+         prisma.attendanceSession.update({
+           where: { id: activeSession.id },
+           data: { status: AttendanceSessionStatus.EXPIRED, endedAt: activeSession.expiresAt }
+         }),
+         prisma.section.update({
+           where: { id: sectionId },
+           data: { activeSessionId: null }
+         })
+       ]);
+       return null;
     }
 
-    if (this.isExpired(session.expiresAt)) {
-      await this.sessionRepo.updateStatus(session.id, AttendanceSessionStatus.EXPIRED);
-      throw new AppError(404, 'Active session expired', 'NO_ACTIVE_SESSION');
-    }
-
-    return session;
+    return activeSession;
   }
 
   async getSectionSessions(userId: string, sectionId: string) {
     await this.sectionService.getSection(userId, sectionId);
-    return this.sessionRepo.findBySection(sectionId);
+    return prisma.attendanceSession.findMany({
+      where: { sectionId },
+      orderBy: { createdAt: 'desc' }
+    });
   }
 }

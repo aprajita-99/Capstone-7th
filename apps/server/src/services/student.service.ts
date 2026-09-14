@@ -48,8 +48,10 @@ export class StudentService {
       await this.studentRepo.createEnrollmentTransaction(student.id, invite.sectionId);
       return { success: true, sectionId: invite.sectionId };
     } catch (e: any) {
-      // Handle Prisma Unique Constraint violation explicitly if a race condition sneaks past
-      throw new AppError(400, 'Enrollment failed or already enrolled', 'ALREADY_ENROLLED');
+      if (e.code === 'P2002') {
+        throw new AppError(400, 'You are already enrolled', 'ALREADY_ENROLLED');
+      }
+      throw e;
     }
   }
 }

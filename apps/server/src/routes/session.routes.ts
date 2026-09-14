@@ -14,7 +14,7 @@ router.get('/', asyncHandler(getSectionSessions));
 router.get('/active', asyncHandler(getActiveSession));
 
 // Under /api/attendance-sessions/:sessionId
-router.post('/start', asyncHandler(startSession));
-router.post('/stop', asyncHandler(stopSession));
+router.post('/:sessionId/start', asyncHandler(startSession));
+router.post('/:sessionId/stop', asyncHandler(stopSession));
 
 export default router;
