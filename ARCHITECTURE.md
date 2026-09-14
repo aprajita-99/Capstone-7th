@@ -27,6 +27,13 @@ A strict clean architectural design pattern is used to separate the UI layer fro
 
 *Note: UI components must never contain direct backend API calls or raw database queries. All data access occurs via isolated hooks wrapping backend API calls.*
 
+## Backend Internal Architecture (apps/server)
+A stringent decoupled Service-Repository pattern is enforced to avoid tightly coupling Express HTTP logic with Database logic.
+- **`src/controllers/`**: Isolates `req` and `res`. Forwards Zod-validated payloads to Domain Services.
+- **`src/services/`**: Holds core business rules and identity mapping logic (e.g. `auth.service.ts`). Depends entirely on Repositories.
+- **`src/repositories/`**: Contains direct Prisma queries. Isolates standard database hydration and transactions.
+- **`src/middleware/`**: Handles localized protections. `requireAuth` blocks unauthenticated routes via stateless session decodes, while `requireRole` protects administrative features.
+
 ## Service Interface Philosophy
 By designing abstract interfaces (e.g., `IAuthService`, `IBleService`), we can swap out mocked development versions with actual physical device implementations (like real BLE broadcasting) without modifying the UI layer.
 
