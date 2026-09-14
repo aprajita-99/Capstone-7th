@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  role      Role
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student   Student?
+  teacher   Teacher?
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+}
+
+model Student {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+  faceEnrolled    Boolean  @default(false)
+  
+  devices         Device[]
+  enrollments     Enrollment[]
+  attendance      AttendanceRecord[]
+}
+
+model Teacher {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  
+  courses   Course[]
+}
+
+model Course {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique
+  teacherId   String
+  teacher     Teacher  @relation(fields: [teacherId], references: [id])
+  
+  sections    Section[]
+}
+
+model Section {
+  id          String   @id @default(uuid())
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id])
+  name        String
+  
+  enrollments Enrollment[]
+  sessions    AttendanceSession[]
+}
+
+model Enrollment {
+  id          String   @id @default(uuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id])
+  sectionId   String
+  section     Section  @relation(fields: [sectionId], references: [id])
+  joinedAt    DateTime @default(now())
+
+  @@unique([studentId, sectionId])
+}
+
+model Device {
+  id          String   @id @default(uuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id])
+  publicKey   String
+  status      DeviceStatus @default(ACTIVE)
+  registeredAt DateTime @default(now())
+}
+
+enum DeviceStatus {
+  ACTIVE
+  REVOKED
+}
+
+model AttendanceSession {
+  id          String   @id @default(uuid())
+  sectionId   String
+  section     Section  @relation(fields: [sectionId], references: [id])
+  isActive    Boolean  @default(true)
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+  
+  records     AttendanceRecord[]
+}
+
+model AttendanceRecord {
+  id          String   @id @default(uuid())
+  sessionId   String
+  session     AttendanceSession @relation(fields: [sessionId], references: [id])
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id])
+  status      AttendanceStatus
+  recordedAt  DateTime @default(now())
+
+  @@unique([sessionId, studentId])
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+}
+
+model AuditEvent {
+  id          String   @id @default(uuid())
+  type        String
+  details     Json
+  createdAt   DateTime @default(now())
+}

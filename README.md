@@ -1,56 +1,48 @@
-# Welcome to your Expo app 👋
+# Automated BLE & Biometric Attendance System
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A production-oriented React Native cross-platform application aiming to solve manual attendance overhead and drastically reduce proxy attendance through multi-layered verification constraints: Course Authorization, Active Session Validation, Localized BLE Signal Proximity, Root Device Attestation, and On-Device Biometric Face Verification.
 
-## Get started
+## Monorepo Layout
 
-1. Install dependencies
+- `apps/mobile/` - React Native (Expo Router) Application.
+- `apps/server/` - Node.js Backend utilizing Prisma (PostgreSQL).
+- `packages/shared/` - Shared Typescript interfaces and Zod validation schemas.
 
-   ```bash
-   npm install
-   ```
+## Requirements
+- Node.js > 18.x
+- PostgreSQL server (can be provisioned via Docker)
+- Redis server
+- Global Expo CLI (`npm install -g expo-cli`)
 
-2. Start the app
+## Quickstart
 
-   ```bash
-   npx expo start
-   ```
+### 1. Root Installation
+Run `npm install` at the root to leverage npm workspaces and install the entire ecosystem's dependencies.
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
+### 2. Backend Startup
 ```bash
-npm run reset-project
+# Provision DB
+cd apps/server
+npx prisma db push
+npx prisma generate
+
+# Start the dev server
+npm run dev
+# Alternatively, from root: npm run dev:server
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### 3. Mobile App Startup
+```bash
+cd apps/mobile
+npx expo start --clear
+# Alternatively, from root: npm run dev:mobile
+```
 
-### Other setup steps
+Note: Because this application heavily relies on physical BLE modules, it will eventually require "Expo Prebuilds" (Development Builds base on React Native CLI native implementations) and **must be tested on physical iOS/Android devices**, not just abstract computer emulators.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Documentation
+Please view the generated technical documents at the project root for comprehensive insights:
+- [ARCHITECTURE.md](./ARCHITECTURE.md)
+- [SECURITY.md](./SECURITY.md)
+- [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md)
+- [docs/](./docs/) - Spec library
