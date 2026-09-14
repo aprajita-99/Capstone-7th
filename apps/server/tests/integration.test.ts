@@ -3,6 +3,7 @@ import { createApp } from '../src/app';
 import prisma from '../src/lib/prisma';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { env } from '../src/config/env';
 
 const app = createApp();
 
@@ -42,7 +43,7 @@ beforeAll(async () => {
         include: { teacher: true }
     });
     teacherId = teacherUser.teacher!.id;
-    teacherToken = jwt.sign({ userId: teacherUser.id, role: 'TEACHER' }, process.env.JWT_SECRET || 'secret');
+    teacherToken = jwt.sign({ userId: teacherUser.id, role: 'TEACHER' }, env.JWT_SECRET);
 
     const studentUser = await prisma.user.create({
         data: {
@@ -54,7 +55,7 @@ beforeAll(async () => {
         include: { student: true }
     });
     studentId = studentUser.student!.id;
-    studentToken = jwt.sign({ userId: studentUser.id, role: 'STUDENT' }, process.env.JWT_SECRET || 'secret');
+    studentToken = jwt.sign({ userId: studentUser.id, role: 'STUDENT' }, env.JWT_SECRET);
 });
 
 afterAll(async () => {
@@ -63,7 +64,7 @@ afterAll(async () => {
 
 describe('E2E Lifecycle and Concurrency API Audit', () => {
 
-    it('GET /health - Smoke test', async () => {
+    it('GET /health - Smoke test properly mapping DB status', async () => {
         const res = await request(app).get('/health');
         expect(res.status).toBe(200);
         expect(res.body.db).toBe('connected');

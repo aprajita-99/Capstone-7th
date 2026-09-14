@@ -3,6 +3,7 @@ import { AppError } from '../utils/errors';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { PendingProvider } from './providers/PendingProvider';
+import { env } from '../config/env';
 
 export class FaceService {
   private provider = new PendingProvider();
@@ -16,14 +17,20 @@ export class FaceService {
   async initEnrollment(studentId: string) {
     const { challenge, expiresAt, contextId } = await this.provider.initializeEnrollment(studentId);
     
-    // Store securely bounded to this student (Any previous unconsumed challenge is overwritten/ignored)
     await prisma.verificationChallenge.create({
       data: {
         studentId,
         type: 'ENROLL',
         challenge,
         expiresAt,
-        sessionId: contextId // We use sessionId space for contextual binding loosely here mapping Provider needs
+        sessionId: contextId
+      }
+    });
+
+    await prisma.auditEvent.create({
+      data: {
+        type: 'FACE_ENROLLMENT_STARTED',
+        details: { studentId }
       }
     });
 
@@ -31,35 +38,43 @@ export class FaceService {
   }
 
   async completeEnrollment(studentId: string, challengeInput: string, facePayload: any) {
-    // 1. Verify Challenge Ownership and state
     const activeChallenge = await prisma.verificationChallenge.findUnique({
       where: { challenge: challengeInput }
     });
 
     if (!activeChallenge || activeChallenge.studentId !== studentId || activeChallenge.type !== 'ENROLL') {
+      await prisma.auditEvent.create({
+        data: { type: 'FACE_ENROLLMENT_FAILED', details: { studentId, reason: 'Invalid or bound challenge' } }
+      });
       throw new AppError(400, 'Invalid or consumed challenge', 'INVALID_CHALLENGE');
     }
 
     if (activeChallenge.expiresAt < new Date()) {
        await prisma.verificationChallenge.delete({ where: { id: activeChallenge.id } });
+       await prisma.auditEvent.create({
+         data: { type: 'FACE_ENROLLMENT_FAILED', details: { studentId, reason: 'Challenge expired' } }
+       });
        throw new AppError(400, 'Challenge expired', 'EXPIRED_CHALLENGE');
     }
 
-    // 2. Consume Challenge Single-Use Immediately
     await prisma.verificationChallenge.delete({ where: { id: activeChallenge.id } });
 
-    // 3. Delegate to Provider
     const result = await this.provider.completeEnrollment(studentId, activeChallenge.sessionId || 'N/A', facePayload);
 
     if (!result.success) {
-       // Provider logic boundary bounds (e.g. true liveness missing)
+       await prisma.auditEvent.create({
+         data: { type: 'FACE_ENROLLMENT_FAILED', details: { studentId, reason: result.error || 'Provider rejected enrollment' } }
+       });
        throw new AppError(400, result.error || 'Enrollment failed', 'PROVIDER_REJECTED');
     }
 
-    // 4. Update Schema
     const updated = await prisma.student.update({
       where: { id: studentId },
       data: { faceEnrolled: true, faceEnrolledAt: new Date() }
+    });
+
+    await prisma.auditEvent.create({
+      data: { type: 'FACE_ENROLLMENT_COMPLETED', details: { studentId } }
     });
 
     return { faceEnrolled: updated.faceEnrolled, faceEnrolledAt: updated.faceEnrolledAt };
@@ -79,13 +94,12 @@ export class FaceService {
       throw new AppError(400, 'Student has not enrolled a face', 'NOT_ENROLLED');
     }
 
-    // Verify Session is real
     const session = await prisma.attendanceSession.findUnique({ where: { id: sessionId } });
     if (!session || session.status !== 'ACTIVE') {
       throw new AppError(400, 'Invalid or inactive session', 'INVALID_SESSION');
     }
 
-    const { challenge, expiresAt, contextId } = await this.provider.initializeVerification(studentId, sessionId);
+    const { challenge, expiresAt } = await this.provider.initializeVerification(studentId, sessionId);
 
     await prisma.verificationChallenge.create({
       data: {
@@ -97,6 +111,10 @@ export class FaceService {
       }
     });
 
+    await prisma.auditEvent.create({
+      data: { type: 'FACE_VERIFICATION_STARTED', details: { studentId, sessionId } }
+    });
+
     return { challenge, expiresAt };
   }
 
@@ -106,11 +124,17 @@ export class FaceService {
     });
 
     if (!activeChallenge || activeChallenge.studentId !== studentId || activeChallenge.sessionId !== sessionId || activeChallenge.type !== 'VERIFY') {
+      await prisma.auditEvent.create({
+        data: { type: 'FACE_VERIFICATION_FAILED', details: { studentId, sessionId, reason: 'Invalid challenge' } }
+      });
       throw new AppError(400, 'Invalid or bound challenge', 'INVALID_CHALLENGE');
     }
 
     if (activeChallenge.expiresAt < new Date()) {
        await prisma.verificationChallenge.delete({ where: { id: activeChallenge.id } });
+       await prisma.auditEvent.create({
+         data: { type: 'FACE_VERIFICATION_FAILED', details: { studentId, sessionId, reason: 'Challenge expired' } }
+       });
        throw new AppError(400, 'Challenge expired', 'EXPIRED_CHALLENGE');
     }
 
@@ -119,16 +143,22 @@ export class FaceService {
     const result = await this.provider.verify(studentId, sessionId, 'N/A', facePayload);
 
     if (!result.verified || !result.livenessPassed) {
+       await prisma.auditEvent.create({
+         data: { type: 'FACE_VERIFICATION_FAILED', details: { studentId, sessionId, reason: result.failureReason || 'Liveness or match failed' } }
+       });
        throw new AppError(400, result.failureReason || 'Verification failed', 'VERIFICATION_FAILED');
     }
 
-    // Issue Cryptographically Signed Single-Use Token
     const jti = crypto.randomUUID();
     const verificationToken = jwt.sign(
       { sub: studentId, sessionId, verificationId: crypto.randomUUID(), verified: true, jti },
-      process.env.JWT_SECRET || 'secret',
+      env.JWT_SECRET,
       { expiresIn: '2m' }
     );
+
+    await prisma.auditEvent.create({
+      data: { type: 'FACE_VERIFICATION_SUCCESS', details: { studentId, sessionId } }
+    });
 
     return { verificationToken };
   }
@@ -136,10 +166,9 @@ export class FaceService {
   // Phase 5 Test Helper function asserting Single Use Consumption logic
   async consumeVerificationTokenTest(token: string) {
      try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as any;
+        const decoded = jwt.verify(token, env.JWT_SECRET) as any;
         if (!decoded.jti || !decoded.verified) throw new Error('Invalid token schema');
         
-        // Transactionally ensure single-use mapping
         await prisma.consumedToken.create({
           data: { jti: decoded.jti }
         });

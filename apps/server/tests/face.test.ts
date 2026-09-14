@@ -3,6 +3,7 @@ import { createApp } from '../src/app';
 import prisma from '../src/lib/prisma';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { env } from '../src/config/env';
 
 const app = createApp();
 
@@ -24,13 +25,13 @@ beforeAll(async () => {
         include: { student: true }
     });
     studentId = s.student!.id;
-    studentToken = jwt.sign({ userId: s.id, role: 'STUDENT' }, process.env.JWT_SECRET || 'secret');
+    studentToken = jwt.sign({ userId: s.id, role: 'STUDENT' }, env.JWT_SECRET);
 
     const s2 = await prisma.user.create({
         data: { email: 'f2@test.com', passwordHash: '123', role: 'STUDENT', student: { create: { studentId: 'F2' } } },
         include: { student: true }
     });
-    otherStudentToken = jwt.sign({ userId: s2.id, role: 'STUDENT' }, process.env.JWT_SECRET || 'secret');
+    otherStudentToken = jwt.sign({ userId: s2.id, role: 'STUDENT' }, env.JWT_SECRET);
 
     const sect = await prisma.section.create({
         data: { name: 'Face Section', course: { create: { name: 'CS', code: 'C' } } }
@@ -88,6 +89,13 @@ describe('Phase 5 Security Assertions', () => {
             .send({ sessionId });
         
         expect(res.status).toBe(200);
+
+        // Verify AuditEvent creation
+        const auditEvents = await prisma.auditEvent.findMany({
+            where: { type: 'FACE_VERIFICATION_STARTED' }
+        });
+        expect(auditEvents.length).toBeGreaterThan(0);
+        expect((auditEvents[0].details as any).studentId).toBe(studentId);
     });
 
     it('Fails Verification directly due to True PAD Liveness configuration missing', async () => {
@@ -101,7 +109,7 @@ describe('Phase 5 Security Assertions', () => {
         const jti = 'unique_jti_123';
         verificationIdToken = jwt.sign(
             { sub: studentId, sessionId, verificationId: 'v_id_1', verified: true, jti },
-            process.env.JWT_SECRET || 'secret',
+            env.JWT_SECRET,
             { expiresIn: '2m' }
         );
 
