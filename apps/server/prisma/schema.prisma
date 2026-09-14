@@ -29,10 +29,12 @@ model Student {
   userId          String   @unique
   user            User     @relation(fields: [userId], references: [id])
   faceEnrolled    Boolean  @default(false)
+  faceEnrolledAt  DateTime?
   
   devices         Device[]
   enrollments     Enrollment[]
   attendance      AttendanceRecord[]
+  challenges      VerificationChallenge[]
 }
 
 model Teacher {

@@ -4,6 +4,7 @@ import courseRoutes from './course.routes';
 import sectionRoutes from './section.routes';
 import sessionRoutes from './session.routes';
 import inviteRoutes from './invite.routes';
+import faceRoutes from './face.routes';
 import studentRoutes from './student.routes';
 
 const router = Router();
@@ -22,5 +23,6 @@ router.use('/invites', inviteRoutes);
 
 // Student Paths
 router.use('/student', studentRoutes);
+router.use('/student/face', faceRoutes);
 
 export default router;

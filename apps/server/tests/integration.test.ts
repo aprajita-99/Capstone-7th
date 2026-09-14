@@ -16,6 +16,9 @@ let inviteToken: string;
 let sessionId: string;
 
 beforeAll(async () => {
+    if (!process.env.DATABASE_URL?.includes('_test')) {
+        throw new Error('CRITICAL: Tests must be executed against a dedicated _test PostgreSQL database!');
+    }
     // Clear tests globally
     await prisma.invite.deleteMany();
     await prisma.attendanceRecord.deleteMany();
