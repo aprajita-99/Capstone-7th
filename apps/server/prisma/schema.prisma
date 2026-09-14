@@ -41,6 +41,7 @@ model Teacher {
   user      User     @relation(fields: [userId], references: [id])
   
   courses   Course[]
+  sessions  AttendanceSession[]
 }
 
 model Course {
@@ -92,11 +93,23 @@ model AttendanceSession {
   id          String   @id @default(uuid())
   sectionId   String
   section     Section  @relation(fields: [sectionId], references: [id])
-  isActive    Boolean  @default(true)
+  teacherId   String
+  teacher     Teacher  @relation(fields: [teacherId], references: [id])
+  subject     String
+  room        String
+  status      AttendanceSessionStatus @default(CREATED)
   startedAt   DateTime @default(now())
+  expiresAt   DateTime
   endedAt     DateTime?
   
   records     AttendanceRecord[]
+}
+
+enum AttendanceSessionStatus {
+  CREATED
+  ACTIVE
+  STOPPED
+  EXPIRED
 }
 
 model AttendanceRecord {

@@ -13,13 +13,16 @@
 - Zod-schema validations on all inbound payloads.
 - Custom `AppError` and centralized error handler mappings.
 
-## Phase 3: Teacher Role & Session Lifecycle
-- Course and Section creation logic.
-- WebSocket / Server implementation to initialize an `AttendanceSession`.
-- Mobile implementation for Teacher starting/stopping the session.
+## Phase 3: Teacher Role & Session Lifecycle (Completed)
+- Course and Section creation pipelines structurally established.
+- `AttendanceSessionStatus` enforced isolating single concurrency limits.
+- `expiresAt` computation fully extracted to the backend removing client timestamps.
+- Repositories strictly scope ownership mapping JWT to nested Teacher topologies.
 
-## Phase 4: BLE Advertising & Scanning (The Crux)
-- Implement `react-native-ble-plx` in abstract service wrappers.
+## Phase 4: Device Cryptography & Enrolment
+- Deploy invitation link bindings / Student enrollment handlers.
+- Wire Asymmetric Hardware generation via `react-native-biometrics`.
+- Validate hardware attestations and backend verification logics.ervice wrappers.
 - Implement the teacher BLE Non-Connectable Broadcaster payload logic (rolling tokens).
 - Implement the student BLE Central Scanner logic to capture payloads and RSSI values without paring.
 - Implement physical device testing (cannot be fully tested in emulator).

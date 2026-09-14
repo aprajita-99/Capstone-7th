@@ -1,3 +1,6 @@
-export interface AuthRequest extends import('express').Request {
-  user?: import('../utils/jwt').TokenPayload;
-}
+import { Request } from 'express';
+import { TokenPayload } from '../utils/jwt';
+
+export type AuthRequest = Request & {
+  user?: TokenPayload;
+};
